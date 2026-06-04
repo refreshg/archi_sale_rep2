@@ -194,7 +194,55 @@
     }
     @keyframes spin { to { transform: rotate(360deg); } }
     body.is-loading { overflow: hidden; }
+    #app.hidden { display: none; }
     #report.hidden { display: none; }
+    .pin-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 1100;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f0f2f5;
+    }
+    .pin-overlay.hidden { display: none; }
+    .pin-box {
+      width: 100%;
+      max-width: 340px;
+      padding: 2rem 1.75rem;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+      text-align: center;
+    }
+    .pin-box h2 {
+      margin: 0 0 0.35rem;
+      font-size: 1.25rem;
+    }
+    .pin-box > p {
+      margin: 0 0 1.25rem;
+      font-size: 0.9rem;
+      color: #64748b;
+    }
+    .pin-input {
+      width: 100%;
+      padding: 0.65rem 0.75rem;
+      font-size: 1.25rem;
+      text-align: center;
+      letter-spacing: 0.35em;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 0.75rem;
+    }
+    .pin-input.pin-invalid { border-color: #dc2626; }
+    .pin-error {
+      margin: 0 0 0.75rem;
+      font-size: 0.85rem;
+      color: #b91c1c;
+      min-height: 1.2rem;
+    }
+    .pin-error:empty { display: none; }
+    .pin-submit { width: 100%; }
     .section-head {
       display: flex;
       flex-wrap: wrap;
@@ -228,6 +276,26 @@
   </style>
 </head>
 <body>
+  <div id="pinGate" class="pin-overlay" aria-hidden="false">
+    <div class="pin-box">
+      <h2>სრული გაყიდვების რეპორტი</h2>
+      <p>შეიყვანეთ PIN კოდი რეპორტის სანახავად</p>
+      <input
+        type="password"
+        id="pinInput"
+        class="pin-input"
+        inputmode="numeric"
+        autocomplete="off"
+        maxlength="8"
+        placeholder="••••"
+        aria-label="PIN კოდი"
+      />
+      <p class="pin-error" id="pinError" role="alert"></p>
+      <button type="button" class="pin-submit" id="pinSubmit">შესვლა</button>
+    </div>
+  </div>
+
+  <div id="app" class="hidden">
   <h1>სრული გაყიდვების რეპორტი</h1>
   <p class="subtitle">მხოლოდ Pipeline 0 · ეტაპი WON · ქართველი / უცხოელი / ემიგრანტი · გაყიდვის არხი</p>
 
@@ -313,8 +381,12 @@
       </table>
     </div>
   </div>
+  </div>
 
   <script>
+    const PIN_CODE = "3377";
+    const PIN_STORAGE_KEY = "archi_sale_rep2_pin_ok";
+
     const API_BASE = "https://crm.archi.ge/rest/1/1tol0pczy0mvbzmu";
     const CRM_DEAL_URL = "https://crm.archi.ge/crm/deal/details";
     const CRM_CONTACT_URL = "https://crm.archi.ge/crm/contact/details";
@@ -871,6 +943,14 @@
     }
 
     async function loadReport() {
+      if (!isPinUnlocked()) {
+        $("pinGate").classList.remove("hidden");
+        $("pinGate").setAttribute("aria-hidden", "false");
+        $("app").classList.add("hidden");
+        showPinError("ჯერ შეიყვანეთ PIN კოდი");
+        return;
+      }
+
       const dateFrom = $("dateFrom").value;
       const dateTo = $("dateTo").value;
       if (!dateFrom || !dateTo) {
@@ -953,6 +1033,49 @@
       }
     }
 
+    function isPinUnlocked() {
+      return sessionStorage.getItem(PIN_STORAGE_KEY) === "1";
+    }
+
+    function unlockApp() {
+      sessionStorage.setItem(PIN_STORAGE_KEY, "1");
+      $("pinGate").classList.add("hidden");
+      $("pinGate").setAttribute("aria-hidden", "true");
+      $("app").classList.remove("hidden");
+      $("pinError").textContent = "";
+      $("pinInput").classList.remove("pin-invalid");
+      setDefaultDates();
+    }
+
+    function showPinError(message) {
+      $("pinError").textContent = message;
+      $("pinInput").classList.add("pin-invalid");
+      $("pinInput").focus();
+      $("pinInput").select();
+    }
+
+    function tryUnlockPin() {
+      const value = $("pinInput").value.trim();
+      if (value === PIN_CODE) {
+        unlockApp();
+        return true;
+      }
+      showPinError("არასწორი PIN კოდი");
+      return false;
+    }
+
+    function initPinGate() {
+      if (isPinUnlocked()) {
+        unlockApp();
+        return;
+      }
+      $("pinSubmit").addEventListener("click", tryUnlockPin);
+      $("pinInput").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") tryUnlockPin();
+      });
+      $("pinInput").focus();
+    }
+
     $("btnLoad").addEventListener("click", loadReport);
     $("btnExport").addEventListener("click", () => {
       if (lastRows.length) exportCsv(lastRows);
@@ -964,7 +1087,7 @@
       if (detailPage < totalDetailPages()) renderDetailTable(lastRows, detailPage + 1);
     });
 
-    setDefaultDates();
+    initPinGate();
   </script>
 </body>
 </html>
