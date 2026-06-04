@@ -21,6 +21,7 @@ npm run build
 ```
 
 ან ხელით: `data/channels.json` → `"3420366": "სახელი"`.
+
 ## გაშვება
 
 ```bash
