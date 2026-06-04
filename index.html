@@ -404,6 +404,21 @@
     const CHANNEL_IBLOCK_ID = 170;
     const PAGE_SIZE = 50;
 
+    /** CRM dropdown UF_CRM_1711966229 (IBLOCK 170) */
+    const FALLBACK_CHANNEL_LABELS = {
+      "3352222": "ზარი",
+      "3352223": "სოციალური მედია",
+      "3352224": "ინტერნეტი/ვებ გვერდი",
+      "3352225": "სააგენტო",
+      "3352226": "პარტნიორი კომპანია",
+      "3352227": "რეკომენდატორი თანამშრომელი",
+      "3352233": "შიდა სეილს არხი",
+      "3352691": "დამფუძნებელი",
+      "3417241": "თვითდინება",
+      "3420366": "არსებული კლიენტი",
+      "4319088": "რეკომენდატორი არქელი",
+    };
+
     const SELECT = [
       "ID", "CATEGORY_ID", "STAGE_ID", "BEGINDATE", "CONTACT_ID", "OPPORTUNITY",
       FIELD_COUNTRY, FIELD_IMMIGRANT, FIELD_CHANNEL,
@@ -422,6 +437,13 @@
     const contactCache = new Map();
     let lastRows = [];
     let detailPage = 1;
+
+    function seedChannelLabels() {
+      Object.entries(FALLBACK_CHANNEL_LABELS).forEach(([id, name]) => {
+        channelLabels.set(String(id), name);
+      });
+    }
+    seedChannelLabels();
 
     function setDefaultDates() {
       const now = new Date();
@@ -498,9 +520,9 @@
     }
 
     function formatChannel(raw) {
-      if (raw == null || raw === false || raw === "") return "—";
+      if (raw == null || raw === false || raw === "") return "არ არის არჩეული";
       const id = String(raw).trim();
-      return channelLabels.get(id) || "—";
+      return channelLabels.get(id) || FALLBACK_CHANNEL_LABELS[id] || "—";
     }
 
     async function apiPost(method, body) {
@@ -834,6 +856,24 @@
         .sort((a, b) => b.count - a.count);
     }
 
+    function aggregateChannelSummary(rows) {
+      const fromRows = aggregateByKey(rows, (r) => r.channel);
+      const byName = new Map(fromRows.map((it) => [it.name, it]));
+
+      Object.values(FALLBACK_CHANNEL_LABELS).forEach((name) => {
+        if (!byName.has(name)) byName.set(name, { name, count: 0, amount: 0 });
+      });
+
+      if (rows.some((r) => !r.channelId)) {
+        const emptyKey = "არ არის არჩეული";
+        if (!byName.has(emptyKey)) byName.set(emptyKey, { name: emptyKey, count: 0, amount: 0 });
+      }
+
+      return [...byName.values()].sort(
+        (a, b) => b.count - a.count || a.name.localeCompare(b.name, "ka"),
+      );
+    }
+
     function renderSummaryCards(rows) {
       const total = rows.length;
       const georgian = rows.filter((r) => r.isGeorgian).length;
@@ -1009,19 +1049,14 @@
         lastRows = deals.map(dealToRow);
         applyChannelLabelsToRows(lastRows);
         renderSummaryCards(lastRows);
-        renderMiniTable("channelSummary", aggregateByKey(lastRows, (r) => r.channel));
+        renderMiniTable("channelSummary", aggregateChannelSummary(lastRows));
         renderMiniTable("countrySummary", aggregateByKey(lastRows, (r) => r.country));
         renderDetailTable(lastRows, 1);
 
         $("report").classList.remove("hidden");
         $("btnExport").disabled = false;
-        const missingChannels = [...new Set(lastRows.map((r) => r.channelId).filter(Boolean))]
-          .filter((id) => !channelLabels.has(id)).length;
-        const statusSuffix = missingChannels
-          ? ` · ${missingChannels} არხის სახელი ვერ ჩაიტვირთა (webhook-ს სჭირდება iblock/lists უფლება)`
-          : "";
         setProgress(
-          `დასრულდა: ${lastRows.length} გაყიდვა (${dateFrom} — ${dateTo})${statusSuffix}`,
+          `დასრულდა: ${lastRows.length} გაყიდვა (${dateFrom} — ${dateTo})`,
           lastRows.length,
           lastRows.length,
         );
