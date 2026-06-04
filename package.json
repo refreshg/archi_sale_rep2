@@ -1,0 +1,14 @@
+{
+  "name": "archi-sale-rep2",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "node scripts/build.js",
+    "sync-channels": "node scripts/sync-channels.js",
+    "dev": "serve dist -l 3000",
+    "start": "serve dist -l 3000"
+  },
+  "devDependencies": {
+    "serve": "^14.2.4"
+  }
+}

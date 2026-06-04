@@ -1,0 +1,970 @@
+<!DOCTYPE html>
+<html lang="ka">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>სრული გაყიდვების რეპორტი</title>
+  <style>
+    :root {
+      --header-bg: #1e3a5f;
+      --header-text: #fff;
+      --border: #d0d7de;
+      --row-alt: #f6f8fa;
+      --accent: #2563eb;
+      --card-bg: #fff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Segoe UI", system-ui, sans-serif;
+      margin: 0;
+      padding: 1.25rem;
+      background: #f0f2f5;
+      color: #1a1a1a;
+    }
+    h1 { margin: 0 0 0.5rem; font-size: 1.4rem; }
+    .subtitle { margin: 0 0 1rem; font-size: 0.9rem; color: #64748b; }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem 1.25rem;
+      align-items: flex-end;
+      margin-bottom: 1rem;
+      padding: 1rem;
+      background: var(--card-bg);
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.08);
+    }
+    label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.85rem; }
+    input[type="date"] { padding: 0.4rem 0.5rem; border: 1px solid var(--border); border-radius: 4px; }
+    button {
+      padding: 0.5rem 1.25rem;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.95rem;
+    }
+    button:disabled { opacity: 0.55; cursor: not-allowed; }
+    button.secondary { background: #475569; }
+    .status { font-size: 0.9rem; color: #555; min-height: 1.25rem; margin-bottom: 1rem; }
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+    .summary-card {
+      background: var(--card-bg);
+      border-radius: 8px;
+      padding: 0.85rem 1rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,.08);
+      border-left: 4px solid var(--accent);
+    }
+    .summary-card.georgian { border-left-color: #16a34a; }
+    .summary-card.foreign { border-left-color: #ea580c; }
+    .summary-card.immigrant { border-left-color: #7c3aed; }
+    .summary-card.agency { border-left-color: #0891b2; }
+    .summary-card .label { font-size: 0.78rem; color: #64748b; margin-bottom: 0.25rem; }
+    .summary-card .value { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .section {
+      background: var(--card-bg);
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.08);
+      margin-bottom: 1rem;
+      overflow: hidden;
+    }
+    .section h2 {
+      margin: 0;
+      padding: 0.65rem 1rem;
+      font-size: 0.95rem;
+      background: #e8eef5;
+      border-bottom: 1px solid var(--border);
+    }
+    .mini-table-wrap { overflow: auto; }
+    .mini-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+    .mini-table th, .mini-table td {
+      padding: 0.45rem 0.75rem;
+      border: 1px solid var(--border);
+      text-align: left;
+    }
+    .mini-table th { background: #f1f5f9; font-weight: 600; }
+    .table-wrap {
+      overflow: auto;
+      background: var(--card-bg);
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.08);
+      max-height: calc(100vh - 420px);
+    }
+    table.data {
+      border-collapse: collapse;
+      width: max-content;
+      min-width: 100%;
+      font-size: 0.82rem;
+    }
+    table.data thead th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: var(--header-bg);
+      color: var(--header-text);
+      font-weight: 600;
+      padding: 0.55rem 0.65rem;
+      text-align: left;
+      white-space: nowrap;
+      border: 1px solid #16304f;
+    }
+    table.data tbody td {
+      padding: 0.45rem 0.65rem;
+      border: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    table.data tbody tr:nth-child(even) { background: var(--row-alt); }
+    table.data tbody tr:hover { background: #e8f0fe; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .empty { color: #999; }
+    .error { color: #b91c1c; }
+    .badge {
+      display: inline-block;
+      padding: 0.15rem 0.45rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .badge-geo { background: #dcfce7; color: #166534; }
+    .badge-for { background: #ffedd5; color: #9a3412; }
+    .badge-yes { background: #ede9fe; color: #5b21b6; }
+    .loader-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(15, 23, 42, 0.45);
+      backdrop-filter: blur(2px);
+    }
+    .loader-overlay.hidden { display: none; }
+    .loader-box {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+      padding: 1.75rem 2.25rem;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+      min-width: 260px;
+    }
+    .loader-step { margin: 0; font-size: 0.9rem; color: #64748b; text-align: center; }
+    .loader-count {
+      margin: 0;
+      font-size: 1.75rem;
+      font-weight: 700;
+      color: #0f172a;
+      font-variant-numeric: tabular-nums;
+    }
+    .loader-percent { margin: 0; font-size: 0.85rem; color: #64748b; }
+    .loader-bar-track {
+      width: 100%;
+      height: 6px;
+      background: #e2e8f0;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .loader-bar-fill {
+      height: 100%;
+      width: 0%;
+      background: var(--accent);
+      border-radius: 999px;
+      transition: width 0.2s ease;
+    }
+    .spinner {
+      width: 44px;
+      height: 44px;
+      border: 4px solid #e2e8f0;
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    body.is-loading { overflow: hidden; }
+    #report.hidden { display: none; }
+    .section-head {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.5rem 1rem;
+      padding: 0.65rem 1rem;
+      background: #e8eef5;
+      border-bottom: 1px solid var(--border);
+    }
+    .section-head h2 {
+      margin: 0;
+      padding: 0;
+      background: none;
+      border: none;
+      font-size: 0.95rem;
+    }
+    .pagination {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem 0.75rem;
+      font-size: 0.85rem;
+      color: #475569;
+    }
+    .pagination button {
+      padding: 0.35rem 0.85rem;
+      font-size: 0.85rem;
+    }
+    .pagination .page-info { font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body>
+  <h1>სრული გაყიდვების რეპორტი</h1>
+  <p class="subtitle">მხოლოდ Pipeline 0 · ეტაპი WON · ქართველი / უცხოელი / ემიგრანტი · გაყიდვის არხი</p>
+
+  <div class="toolbar">
+    <label>
+      პერიოდი — დაწყება
+      <input type="date" id="dateFrom" />
+    </label>
+    <label>
+      პერიოდი — დასასრული
+      <input type="date" id="dateTo" />
+    </label>
+    <button type="button" id="btnLoad">ჩატვირთვა</button>
+    <button type="button" class="secondary" id="btnExport" disabled>CSV ექსპორტი</button>
+  </div>
+  <p class="status" id="status">აირჩიეთ პერიოდი და დააჭირეთ «ჩატვირთვა».</p>
+
+  <div id="loader" class="loader-overlay hidden" aria-hidden="true">
+    <div class="loader-box">
+      <div class="spinner" role="status" aria-label="იტვირთება"></div>
+      <p class="loader-step" id="loaderStep">იტვირთება…</p>
+      <p class="loader-count" id="loaderCount"></p>
+      <p class="loader-percent" id="loaderPercent"></p>
+      <div class="loader-bar-track" aria-hidden="true">
+        <div class="loader-bar-fill" id="loaderBar"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="report" class="hidden">
+    <div class="summary-grid" id="summaryCards"></div>
+
+    <div class="section">
+      <h2>გაყიდვის არხების მიხედვით</h2>
+      <div class="mini-table-wrap">
+        <table class="mini-table" id="channelSummary">
+          <thead>
+            <tr><th>არხი</th><th>რაოდენობა</th><th>თანხა (USD)</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>ქვეყნების მიხედვით</h2>
+      <div class="mini-table-wrap">
+        <table class="mini-table" id="countrySummary">
+          <thead>
+            <tr><th>ქვეყანა (მყიდველი)</th><th>რაოდენობა</th><th>თანხა (USD)</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-head">
+        <h2>დეტალური ცხრილი</h2>
+        <div class="pagination" id="detailPagination">
+          <button type="button" class="secondary" id="btnPrevPage" disabled>← წინა</button>
+          <span class="page-info" id="pageInfo">გვერდი 1 / 1</span>
+          <button type="button" class="secondary" id="btnNextPage" disabled>შემდეგი →</button>
+        </div>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>Deal ID</th>
+            <th>თარიღი</th>
+            <th>კლიენტი</th>
+            <th>ქვეყანა (მყიდველი)</th>
+            <th>კლიენტის ტიპი</th>
+            <th>ემიგრანტი</th>
+            <th>გაყიდვის არხი</th>
+            <th>სააგენტო</th>
+            <th>თანხა</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = "https://crm.archi.ge/rest/1/1tol0pczy0mvbzmu";
+    const CRM_DEAL_URL = "https://crm.archi.ge/crm/deal/details";
+    const CRM_CONTACT_URL = "https://crm.archi.ge/crm/contact/details";
+
+    const CATEGORY_ID = "0";
+    const STAGE_WON = "WON";
+
+    const FIELD_COUNTRY = "UF_CRM_1686570871";
+    const FIELD_IMMIGRANT = "UF_CRM_1695303297396";
+    const FIELD_CHANNEL = "UF_CRM_1711966229";
+
+    const GEORGIA_COUNTRY_ID = "3523";
+    const IMMIGRANT_YES_ID = "4386";
+    const AGENCY_CHANNEL_ID = "3352225";
+    const CHANNEL_IBLOCK_ID = 170;
+    const PAGE_SIZE = 50;
+
+    const SELECT = [
+      "ID", "CATEGORY_ID", "STAGE_ID", "BEGINDATE", "CONTACT_ID", "OPPORTUNITY",
+      FIELD_COUNTRY, FIELD_IMMIGRANT, FIELD_CHANNEL,
+    ];
+
+    function isWonPipelineZero(deal) {
+      const stage = String(deal.STAGE_ID || "").trim();
+      const category = String(deal.CATEGORY_ID ?? "").trim();
+      return stage === STAGE_WON && category === CATEGORY_ID;
+    }
+
+    const $ = (id) => document.getElementById(id);
+    const countryLabels = new Map();
+    const immigrantLabels = new Map();
+    const channelLabels = new Map();
+    const contactCache = new Map();
+    let lastRows = [];
+    let detailPage = 1;
+
+    function setDefaultDates() {
+      const now = new Date();
+      const from = new Date(now.getFullYear(), now.getMonth(), 1);
+      const to = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      $("dateFrom").value = formatIsoDate(from);
+      $("dateTo").value = formatIsoDate(to);
+    }
+
+    function formatIsoDate(d) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
+    }
+
+    function formatContractDate(iso) {
+      if (!iso) return "";
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return iso;
+      const day = String(d.getDate()).padStart(2, "0");
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const y = d.getFullYear();
+      return `${day}/${m}/${y}`;
+    }
+
+    function escapeHtml(s) {
+      return String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function parseAmount(raw) {
+      if (raw == null || raw === false || raw === "") return 0;
+      let amount = raw;
+      if (typeof raw === "string" && raw.includes("|")) {
+        amount = raw.split("|")[0];
+      }
+      const n = Number(String(amount).replace(/,/g, ""));
+      return Number.isNaN(n) ? 0 : n;
+    }
+
+    function formatMoney(raw) {
+      if (raw == null || raw === false || raw === "") return "";
+      let amount;
+      let currency = "USD";
+      if (typeof raw === "string" && raw.includes("|")) {
+        const [a, c] = raw.split("|");
+        amount = a;
+        currency = c || "USD";
+      } else {
+        amount = raw;
+      }
+      const n = Number(String(amount).replace(/,/g, ""));
+      if (Number.isNaN(n)) return String(raw);
+      try {
+        return new Intl.NumberFormat("en-US", {
+          style: "currency",
+          currency,
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        }).format(n);
+      } catch {
+        return `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      }
+    }
+
+    function formatEnumLabel(raw, labelMap) {
+      if (raw == null || raw === false || raw === "") return "";
+      const id = String(raw).trim();
+      return labelMap.get(id) || id;
+    }
+
+    function formatChannel(raw) {
+      if (raw == null || raw === false || raw === "") return "—";
+      const id = String(raw).trim();
+      return channelLabels.get(id) || "—";
+    }
+
+    async function apiPost(method, body) {
+      const res = await fetch(`${API_BASE}/${method}.json`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (data.error) {
+        const err = new Error(data.error_description || data.error);
+        err.code = data.error;
+        throw err;
+      }
+      return data;
+    }
+
+    function storeChannelElements(elements) {
+      (elements || []).forEach((el) => {
+        const id = el.ID ?? el.id;
+        const name = el.NAME ?? el.name;
+        if (id != null && name) channelLabels.set(String(id), String(name).trim());
+      });
+    }
+
+    async function loadChannelLabelsViaIblock(onProgress) {
+      let start = 0;
+      let total = null;
+      while (true) {
+        const data = await apiPost("iblock.Element.list", {
+          iblockId: CHANNEL_IBLOCK_ID,
+          select: ["ID", "NAME"],
+          order: { ID: "ASC" },
+          start,
+        });
+        const elements = data.result?.elements || [];
+        storeChannelElements(elements);
+        total = data.total ?? channelLabels.size;
+        onProgress?.(channelLabels.size, total);
+        if (!data.next && elements.length < 50) break;
+        if (data.next != null) start = data.next;
+        else break;
+      }
+      return channelLabels.size > 0;
+    }
+
+    async function loadChannelLabelsViaLists(onProgress) {
+      let start = 0;
+      while (true) {
+        const data = await apiPost("lists.element.get", {
+          IBLOCK_TYPE_ID: "lists",
+          IBLOCK_ID: CHANNEL_IBLOCK_ID,
+          SELECT: ["ID", "NAME"],
+          start,
+        });
+        const elements = Array.isArray(data.result) ? data.result : data.result ? [data.result] : [];
+        storeChannelElements(elements);
+        onProgress?.(channelLabels.size, data.total ?? channelLabels.size);
+        if (!data.next && elements.length < 50) break;
+        if (data.next != null) start = data.next;
+        else break;
+      }
+      return channelLabels.size > 0;
+    }
+
+    async function resolveMissingChannelLabels(ids, onProgress) {
+      const missing = [...new Set(ids.map(String))].filter((id) => id && !channelLabels.has(id));
+      if (!missing.length) return;
+      const total = missing.length;
+      let done = 0;
+      onProgress?.(done, total);
+
+      for (let i = 0; i < missing.length; i += 50) {
+        const chunk = missing.slice(i, i + 50);
+        try {
+          const data = await apiPost("iblock.Element.list", {
+            iblockId: CHANNEL_IBLOCK_ID,
+            select: ["ID", "NAME"],
+            filter: { ID: chunk.map(Number) },
+          });
+          storeChannelElements(data.result?.elements || []);
+        } catch {
+          /* batch filter may be unsupported — try one-by-one below */
+        }
+
+        for (const id of chunk) {
+          if (channelLabels.has(id)) {
+            done += 1;
+            onProgress?.(done, total);
+            continue;
+          }
+          try {
+            const data = await apiPost("lists.element.get", {
+              IBLOCK_TYPE_ID: "lists",
+              IBLOCK_ID: CHANNEL_IBLOCK_ID,
+              ELEMENT_ID: Number(id),
+              SELECT: ["ID", "NAME"],
+            });
+            const el = Array.isArray(data.result) ? data.result[0] : data.result;
+            if (el) storeChannelElements([el]);
+          } catch {
+            /* skip */
+          }
+          done += 1;
+          onProgress?.(done, total);
+        }
+      }
+    }
+
+    async function loadChannelLabelsFromFile() {
+      try {
+        const res = await fetch("data/channels.json");
+        if (!res.ok) return false;
+        const data = await res.json();
+        Object.entries(data).forEach(([id, name]) => {
+          if (name) channelLabels.set(String(id), String(name).trim());
+        });
+        return channelLabels.size > 0;
+      } catch {
+        return false;
+      }
+    }
+
+    async function loadChannelLabels(onProgress) {
+      if (channelLabels.size > 0) return true;
+      onProgress?.(0, 1, "გაყიდვის არხები");
+      try {
+        if (await loadChannelLabelsViaIblock((loaded, total) => {
+          onProgress?.(loaded, total, "გაყიდვის არხები (iblock)");
+        })) return true;
+      } catch (err) {
+        if (err.code !== "insufficient_scope" && err.code !== "ERROR_METHOD_NOT_FOUND") {
+          console.warn("iblock.Element.list:", err.message);
+        }
+      }
+      try {
+        if (await loadChannelLabelsViaLists((loaded, total) => {
+          onProgress?.(loaded, total, "გაყიდვის არხები (lists)");
+        })) return true;
+      } catch (err) {
+        if (err.code !== "insufficient_scope" && err.code !== "ERROR_METHOD_NOT_FOUND") {
+          console.warn("lists.element.get:", err.message);
+        }
+      }
+      if (await loadChannelLabelsFromFile()) return true;
+      return channelLabels.size > 0;
+    }
+
+    function applyChannelLabelsToRows(rows) {
+      rows.forEach((row) => {
+        if (row.channelId) row.channel = formatChannel(row.channelId);
+      });
+    }
+
+    function totalDetailPages() {
+      return Math.max(1, Math.ceil(lastRows.length / PAGE_SIZE));
+    }
+
+    function updatePaginationControls() {
+      const pages = totalDetailPages();
+      if (detailPage > pages) detailPage = pages;
+      $("pageInfo").textContent = `გვერდი ${detailPage} / ${pages} · სულ ${lastRows.length} ჩანაწერი`;
+      $("btnPrevPage").disabled = detailPage <= 1;
+      $("btnNextPage").disabled = detailPage >= pages;
+    }
+
+    function isGeorgiaCountry(raw) {
+      const id = raw == null || raw === false ? "" : String(raw).trim();
+      if (id === GEORGIA_COUNTRY_ID) return true;
+      const label = countryLabels.get(id) || "";
+      return label === "საქართველო";
+    }
+
+    function clientTypeLabel(raw) {
+      return isGeorgiaCountry(raw) ? "ქართველი" : "უცხოელი";
+    }
+
+    function isImmigrantYes(raw) {
+      const id = raw == null || raw === false ? "" : String(raw).trim();
+      if (id === IMMIGRANT_YES_ID) return true;
+      return immigrantLabels.get(id) === "კი";
+    }
+
+    function isAgencyChannel(raw) {
+      return String(raw || "").trim() === AGENCY_CHANNEL_ID;
+    }
+
+    function setLoading(active) {
+      $("loader").classList.toggle("hidden", !active);
+      $("loader").setAttribute("aria-hidden", active ? "false" : "true");
+      document.body.classList.toggle("is-loading", active);
+      if (!active) {
+        $("loaderStep").textContent = "";
+        $("loaderCount").textContent = "";
+        $("loaderPercent").textContent = "";
+        $("loaderBar").style.width = "0%";
+      }
+    }
+
+    function setProgress(step, loaded = null, total = null) {
+      $("loaderStep").textContent = step;
+      if (loaded != null && total != null && total > 0) {
+        const pct = Math.min(100, Math.round((loaded / total) * 100));
+        $("loaderCount").textContent = `${loaded} / ${total}`;
+        $("loaderPercent").textContent = `${pct}%`;
+        $("loaderBar").style.width = `${pct}%`;
+        $("status").textContent = `${step} — ${loaded} / ${total} (${pct}%)`;
+      } else if (loaded != null) {
+        $("loaderCount").textContent = String(loaded);
+        $("loaderPercent").textContent = "";
+        $("status").textContent = step;
+      } else {
+        $("loaderCount").textContent = "";
+        $("loaderPercent").textContent = "";
+        $("loaderBar").style.width = "0%";
+        $("status").textContent = step;
+      }
+    }
+
+    async function loadFieldItems(fieldName, targetMap) {
+      if (targetMap.size > 0) return;
+      const url = new URL(`${API_BASE}/crm.deal.fields.json`);
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error_description || data.error);
+      const field = data.result?.[fieldName];
+      (field?.items || []).forEach((item) => {
+        targetMap.set(String(item.ID), item.VALUE);
+      });
+    }
+
+    async function fetchAllDeals(dateFrom, dateTo, onProgress) {
+      const deals = [];
+      let start = 0;
+      let total = null;
+
+      while (true) {
+        const url = new URL(`${API_BASE}/crm.deal.list.json`);
+        url.searchParams.set("filter[CATEGORY_ID]", CATEGORY_ID);
+        url.searchParams.set("filter[STAGE_ID]", STAGE_WON);
+        url.searchParams.set("filter[>=BEGINDATE]", dateFrom);
+        url.searchParams.set("filter[<=BEGINDATE]", dateTo);
+        url.searchParams.set("order[BEGINDATE]", "DESC");
+        url.searchParams.set("start", String(start));
+        SELECT.forEach((f) => url.searchParams.append("select[]", f));
+
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.error) throw new Error(data.error_description || data.error);
+
+        const batch = (data.result || []).filter(isWonPipelineZero);
+        deals.push(...batch);
+        total = data.total ?? deals.length;
+        onProgress(deals.length, total);
+
+        if (!data.next && batch.length < 50) break;
+        if (data.next != null) start = data.next;
+        else break;
+      }
+      return deals;
+    }
+
+    async function resolveContacts(contactIds, onProgress) {
+      const missing = [...new Set(contactIds)].filter(
+        (id) => id && !contactCache.has(String(id)),
+      );
+      const total = missing.length;
+      let done = 0;
+      onProgress?.(done, total);
+      for (const id of missing) {
+        try {
+          const url = new URL(`${API_BASE}/crm.contact.get.json`);
+          url.searchParams.set("ID", String(id));
+          const res = await fetch(url);
+          const data = await res.json();
+          const c = data.result;
+          const name = c
+            ? (c.FULL_NAME || [c.NAME, c.LAST_NAME].filter(Boolean).join(" ").trim())
+            : "";
+          contactCache.set(String(id), name || `#${id}`);
+        } catch {
+          contactCache.set(String(id), `#${id}`);
+        }
+        done += 1;
+        onProgress?.(done, total);
+      }
+    }
+
+    function dealToRow(deal) {
+      const countryRaw = deal[FIELD_COUNTRY];
+      const channelRaw = deal[FIELD_CHANNEL];
+      const immigrantRaw = deal[FIELD_IMMIGRANT];
+      const countryLabel = formatEnumLabel(countryRaw, countryLabels) || "—";
+      const typeLabel = clientTypeLabel(countryRaw);
+      const immigrantLabel = isImmigrantYes(immigrantRaw) ? "კი" : (immigrantRaw ? formatEnumLabel(immigrantRaw, immigrantLabels) || "არა" : "");
+      const agency = isAgencyChannel(channelRaw) ? "კი" : "";
+      const amount = parseAmount(deal.OPPORTUNITY);
+
+      return {
+        id: deal.ID,
+        date: formatContractDate(deal.BEGINDATE),
+        contactId: deal.CONTACT_ID ? String(deal.CONTACT_ID) : "",
+        clientName: deal.CONTACT_ID ? contactCache.get(String(deal.CONTACT_ID)) || "" : "",
+        country: countryLabel,
+        clientType: typeLabel,
+        isGeorgian: isGeorgiaCountry(countryRaw),
+        isForeign: !isGeorgiaCountry(countryRaw),
+        immigrant: immigrantLabel,
+        isImmigrant: isImmigrantYes(immigrantRaw),
+        channel: formatChannel(channelRaw),
+        channelId: channelRaw ? String(channelRaw) : "",
+        agency,
+        isAgency: isAgencyChannel(channelRaw),
+        amount,
+        priceFormatted: formatMoney(deal.OPPORTUNITY),
+      };
+    }
+
+    function aggregateByKey(rows, keyFn) {
+      const map = new Map();
+      for (const r of rows) {
+        const key = keyFn(r) || "—";
+        if (!map.has(key)) map.set(key, { count: 0, amount: 0 });
+        const entry = map.get(key);
+        entry.count += 1;
+        entry.amount += r.amount;
+      }
+      return [...map.entries()]
+        .map(([name, v]) => ({ name, count: v.count, amount: v.amount }))
+        .sort((a, b) => b.count - a.count);
+    }
+
+    function renderSummaryCards(rows) {
+      const total = rows.length;
+      const georgian = rows.filter((r) => r.isGeorgian).length;
+      const foreign = rows.filter((r) => r.isForeign).length;
+      const immigrants = rows.filter((r) => r.isImmigrant).length;
+      const agency = rows.filter((r) => r.isAgency).length;
+      const totalAmount = rows.reduce((s, r) => s + r.amount, 0);
+
+      const cards = [
+        { label: "სულ (Pipeline 0 · WON)", value: total, cls: "" },
+        { label: "ქართველი", value: georgian, cls: "georgian" },
+        { label: "უცხოელი", value: foreign, cls: "foreign" },
+        { label: "ემიგრანტი (კი)", value: immigrants, cls: "immigrant" },
+        { label: "სააგენტო", value: agency, cls: "agency" },
+        { label: "ჯამური თანხა", value: formatMoney(`${totalAmount}|USD`), cls: "" },
+      ];
+
+      $("summaryCards").innerHTML = cards
+        .map(
+          (c) => `
+        <div class="summary-card ${c.cls}">
+          <div class="label">${escapeHtml(c.label)}</div>
+          <div class="value">${escapeHtml(String(c.value))}</div>
+        </div>`,
+        )
+        .join("");
+    }
+
+    function renderMiniTable(tbodyId, items) {
+      const tbody = document.querySelector(`#${tbodyId} tbody`);
+      if (!items.length) {
+        tbody.innerHTML = '<tr><td colspan="3" class="empty">მონაცემები არ არის</td></tr>';
+        return;
+      }
+      tbody.innerHTML = items
+        .map(
+          (it) => `<tr>
+          <td>${escapeHtml(it.name)}</td>
+          <td>${it.count}</td>
+          <td>${escapeHtml(formatMoney(`${it.amount}|USD`))}</td>
+        </tr>`,
+        )
+        .join("");
+    }
+
+    function renderDetailTable(rows, page = detailPage) {
+      const tbody = $("tbody");
+      if (!rows.length) {
+        tbody.innerHTML =
+          '<tr><td colspan="9" class="empty">ამ პერიოდში Pipeline 0 · WON გარიგებები არ მოიძებნა.</td></tr>';
+        updatePaginationControls();
+        return;
+      }
+      detailPage = page;
+      const pages = totalDetailPages();
+      if (detailPage > pages) detailPage = pages;
+      const startIdx = (detailPage - 1) * PAGE_SIZE;
+      const pageRows = rows.slice(startIdx, startIdx + PAGE_SIZE);
+      tbody.innerHTML = pageRows
+        .map((r) => {
+          const dealLink = `<a href="${CRM_DEAL_URL}/${r.id}/" target="_blank" rel="noopener">${escapeHtml(r.id)}</a>`;
+          const clientCell = r.contactId
+            ? `<a href="${CRM_CONTACT_URL}/${r.contactId}/" target="_blank" rel="noopener">${escapeHtml(r.clientName || r.contactId)}</a>`
+            : escapeHtml(r.clientName || "");
+          const typeBadge =
+            r.clientType === "ქართველი"
+              ? '<span class="badge badge-geo">ქართველი</span>'
+              : '<span class="badge badge-for">უცხოელი</span>';
+          const immBadge = r.isImmigrant
+            ? '<span class="badge badge-yes">კი</span>'
+            : escapeHtml(r.immigrant || "");
+          return `<tr>
+          <td>${dealLink}</td>
+          <td>${escapeHtml(r.date)}</td>
+          <td>${clientCell}</td>
+          <td>${escapeHtml(r.country)}</td>
+          <td>${typeBadge}</td>
+          <td>${immBadge}</td>
+          <td>${escapeHtml(r.channel)}</td>
+          <td>${escapeHtml(r.agency)}</td>
+          <td>${escapeHtml(r.priceFormatted)}</td>
+        </tr>`;
+        })
+        .join("");
+      updatePaginationControls();
+    }
+
+    function exportCsv(rows) {
+      const headers = [
+        "Deal ID", "თარიღი", "კლიენტი", "ქვეყანა", "ტიპი", "ემიგრანტი",
+        "არხი", "არხი ID", "სააგენტო", "თანხა",
+      ];
+      const lines = [headers.join(",")];
+      for (const r of rows) {
+        const cols = [
+          r.id, r.date, r.clientName, r.country, r.clientType, r.immigrant,
+          r.channel, r.channelId, r.agency, r.priceFormatted,
+        ].map((v) => `"${String(v).replace(/"/g, '""')}"`);
+        lines.push(cols.join(","));
+      }
+      const blob = new Blob(["\uFEFF" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `sales-report-${$("dateFrom").value}_${$("dateTo").value}.csv`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+    async function loadReport() {
+      const dateFrom = $("dateFrom").value;
+      const dateTo = $("dateTo").value;
+      if (!dateFrom || !dateTo) {
+        $("status").textContent = "აირჩიეთ პერიოდის თარიღები.";
+        return;
+      }
+      if (dateFrom > dateTo) {
+        $("status").textContent = "დაწყების თარიღი უნდა იყოს დასასრულზე ადრე.";
+        return;
+      }
+
+      $("btnLoad").disabled = true;
+      $("btnExport").disabled = true;
+      $("report").classList.add("hidden");
+      setLoading(true);
+      setProgress("ცნობარების ჩატვირთვა…");
+
+      try {
+        await Promise.all([
+          loadFieldItems(FIELD_COUNTRY, countryLabels),
+          loadFieldItems(FIELD_IMMIGRANT, immigrantLabels),
+          loadChannelLabels((loaded, total, step) => {
+            setProgress(step || "გაყიდვის არხები…", loaded, total);
+          }),
+        ]);
+
+        setProgress("გარიგებების ჩატვირთვა (Pipeline 0 · WON)…", 0, null);
+        const deals = await fetchAllDeals(dateFrom, dateTo, (loaded, total) => {
+          setProgress("გარიგებების ჩატვირთვა (Pipeline 0 · WON)…", loaded, total);
+        });
+
+        if (!deals.length) {
+          lastRows = [];
+          detailPage = 1;
+          renderSummaryCards([]);
+          renderMiniTable("channelSummary", []);
+          renderMiniTable("countrySummary", []);
+          renderDetailTable([]);
+          $("report").classList.remove("hidden");
+          setProgress("მონაცემები არ მოიძებნა ამ პერიოდში.", 0, 0);
+          return;
+        }
+
+        const channelIds = deals.map((d) => d[FIELD_CHANNEL]).filter(Boolean);
+        await resolveMissingChannelLabels(channelIds, (done, total) => {
+          setProgress("არხების დასახელებები…", done, total);
+        });
+
+        setProgress("კონტაქტების ჩატვირთვა…", 0, null);
+        const contactIds = deals.map((d) => d.CONTACT_ID).filter(Boolean);
+        await resolveContacts(contactIds, (done, total) => {
+          setProgress("კონტაქტების ჩატვირთვა…", done, total || 1);
+        });
+
+        detailPage = 1;
+        lastRows = deals.map(dealToRow);
+        applyChannelLabelsToRows(lastRows);
+        renderSummaryCards(lastRows);
+        renderMiniTable("channelSummary", aggregateByKey(lastRows, (r) => r.channel));
+        renderMiniTable("countrySummary", aggregateByKey(lastRows, (r) => r.country));
+        renderDetailTable(lastRows, 1);
+
+        $("report").classList.remove("hidden");
+        $("btnExport").disabled = false;
+        const missingChannels = [...new Set(lastRows.map((r) => r.channelId).filter(Boolean))]
+          .filter((id) => !channelLabels.has(id)).length;
+        const statusSuffix = missingChannels
+          ? ` · ${missingChannels} არხის სახელი ვერ ჩაიტვირთა (webhook-ს სჭირდება iblock/lists უფლება)`
+          : "";
+        setProgress(
+          `დასრულდა: ${lastRows.length} გაყიდვა (${dateFrom} — ${dateTo})${statusSuffix}`,
+          lastRows.length,
+          lastRows.length,
+        );
+      } catch (err) {
+        $("status").innerHTML = `<span class="error">${escapeHtml(err.message || String(err))}</span>`;
+      } finally {
+        setLoading(false);
+        $("btnLoad").disabled = false;
+      }
+    }
+
+    $("btnLoad").addEventListener("click", loadReport);
+    $("btnExport").addEventListener("click", () => {
+      if (lastRows.length) exportCsv(lastRows);
+    });
+    $("btnPrevPage").addEventListener("click", () => {
+      if (detailPage > 1) renderDetailTable(lastRows, detailPage - 1);
+    });
+    $("btnNextPage").addEventListener("click", () => {
+      if (detailPage < totalDetailPages()) renderDetailTable(lastRows, detailPage + 1);
+    });
+
+    setDefaultDates();
+  </script>
+</body>
+</html>
