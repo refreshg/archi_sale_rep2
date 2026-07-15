@@ -273,6 +273,30 @@
       font-size: 0.85rem;
     }
     .pagination .page-info { font-variant-numeric: tabular-nums; }
+    .filter-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem 0.9rem;
+      align-items: flex-end;
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border);
+      background: #fbfcfe;
+    }
+    .filter-bar label {
+      font-size: 0.78rem;
+      color: #475569;
+      gap: 0.2rem;
+    }
+    .filter-bar select {
+      padding: 0.35rem 0.5rem;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 0.85rem;
+      min-width: 130px;
+      max-width: 220px;
+      background: #fff;
+    }
+    .filter-bar button { align-self: flex-end; }
   </style>
 </head>
 <body>
@@ -329,6 +353,18 @@
     <div class="summary-grid" id="summaryCards"></div>
 
     <div class="section">
+      <h2>კონვერტაცია (მყიდველების პროცენტული განაწილება)</h2>
+      <div class="mini-table-wrap">
+        <table class="mini-table" id="conversionSummary">
+          <thead>
+            <tr><th>კატეგორია</th><th>რაოდენობა</th><th>პროცენტი</th><th>თანხა (USD)</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="section">
       <h2>გაყიდვის არხების მიხედვით</h2>
       <div class="mini-table-wrap">
         <table class="mini-table" id="channelSummary">
@@ -361,6 +397,18 @@
           <button type="button" class="secondary" id="btnNextPage" disabled>შემდეგი →</button>
         </div>
       </div>
+      <div class="filter-bar" id="filterBar">
+        <label>კლიენტის ტიპი<select id="fltType"></select></label>
+        <label>ემიგრანტი<select id="fltImmigrant"></select></label>
+        <label>ქვეყანა<select id="fltCountry"></select></label>
+        <label>პერსონალური მრჩეველი<select id="fltAdvisor"></select></label>
+        <label>გაყიდვის არხი<select id="fltChannel"></select></label>
+        <label>სააგენტო<select id="fltAgency"></select></label>
+        <label>პროექტი<select id="fltProject"></select></label>
+        <label>სართული<select id="fltFloor"></select></label>
+        <label>ბინა/პარკინგი<select id="fltUnitType"></select></label>
+        <button type="button" class="secondary" id="btnResetFilters">ფილტრების გასუფთავება</button>
+      </div>
     </div>
     <div class="table-wrap">
       <table class="data">
@@ -372,8 +420,14 @@
             <th>ქვეყანა (მყიდველი)</th>
             <th>კლიენტის ტიპი</th>
             <th>ემიგრანტი</th>
+            <th>პერსონალური მრჩეველი</th>
             <th>გაყიდვის არხი</th>
             <th>სააგენტო</th>
+            <th>პროექტი</th>
+            <th>სართული</th>
+            <th>ბინა/პარკინგი</th>
+            <th>ფართი (კვ.მ)</th>
+            <th>ფასი (კვ.მ)</th>
             <th>თანხა</th>
           </tr>
         </thead>
@@ -397,6 +451,11 @@
     const FIELD_COUNTRY = "UF_CRM_1686570871";
     const FIELD_IMMIGRANT = "UF_CRM_1695303297396";
     const FIELD_CHANNEL = "UF_CRM_1711966229";
+    const FIELD_ADVISOR = "UF_CRM_1600251230";     // პერსონალური მრჩეველი (თანამშრომელი)
+    const FIELD_PROJECT = "UF_CRM_5E1EECDB0571C";   // პროექტი (enum)
+    const FIELD_FLOOR = "UF_CRM_1574325620519";     // სართული
+    const FIELD_UNIT_INFO = "UF_CRM_1617787519405"; // კომპოზიტური: პროექტი | ტიპი | № | კვ.მ | სართ | კვ.ფასი | ჯამური
+    const FIELD_PRICE_SQM = "UF_CRM_1574325830678"; // კვ.მ ფასი (money)
 
     const GEORGIA_COUNTRY_ID = "3523";
     const IMMIGRANT_YES_ID = "4386";
@@ -422,6 +481,7 @@
     const SELECT = [
       "ID", "CATEGORY_ID", "STAGE_ID", "BEGINDATE", "CONTACT_ID", "OPPORTUNITY",
       FIELD_COUNTRY, FIELD_IMMIGRANT, FIELD_CHANNEL,
+      FIELD_ADVISOR, FIELD_PROJECT, FIELD_FLOOR, FIELD_UNIT_INFO, FIELD_PRICE_SQM,
     ];
 
     function isWonPipelineZero(deal) {
@@ -434,8 +494,11 @@
     const countryLabels = new Map();
     const immigrantLabels = new Map();
     const channelLabels = new Map();
+    const projectLabels = new Map();
     const contactCache = new Map();
+    const userCache = new Map();
     let lastRows = [];
+    let filteredRows = [];
     let detailPage = 1;
 
     function seedChannelLabels() {
@@ -523,6 +586,26 @@
       if (raw == null || raw === false || raw === "") return "არ არის არჩეული";
       const id = String(raw).trim();
       return channelLabels.get(id) || FALLBACK_CHANNEL_LABELS[id] || "—";
+    }
+
+    function formatProject(raw) {
+      if (Array.isArray(raw)) raw = raw[0];
+      if (raw == null || raw === false || raw === "") return "";
+      const id = String(raw).trim();
+      return projectLabels.get(id) || id;
+    }
+
+    /** კომპოზიტური ველი: "პროექტი | ტიპი | ბინის №: 133 | კვ.მ. 41.4 | სართ:12 | ..." */
+    function parseUnitInfo(raw) {
+      const text = Array.isArray(raw) ? (raw[0] || "") : (raw || "");
+      const parts = String(text).split("|").map((s) => s.trim());
+      let unitType = "";
+      for (const p of parts) {
+        if (p === "ბინა" || p === "პარკინგი" || p === "კომერციული") { unitType = p; break; }
+      }
+      const areaMatch = String(text).match(/კვ\.მ\.\s*([\d.,]+)/);
+      const area = areaMatch ? areaMatch[1].replace(/,/g, "") : "";
+      return { unitType, area };
     }
 
     async function apiPost(method, body) {
@@ -679,13 +762,16 @@
     }
 
     function totalDetailPages() {
-      return Math.max(1, Math.ceil(lastRows.length / PAGE_SIZE));
+      return Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
     }
 
     function updatePaginationControls() {
       const pages = totalDetailPages();
       if (detailPage > pages) detailPage = pages;
-      $("pageInfo").textContent = `გვერდი ${detailPage} / ${pages} · სულ ${lastRows.length} ჩანაწერი`;
+      const suffix = filteredRows.length === lastRows.length
+        ? `სულ ${lastRows.length} ჩანაწერი`
+        : `ნაჩვენებია ${filteredRows.length} / ${lastRows.length} ჩანაწერი`;
+      $("pageInfo").textContent = `გვერდი ${detailPage} / ${pages} · ${suffix}`;
       $("btnPrevPage").disabled = detailPage <= 1;
       $("btnNextPage").disabled = detailPage >= pages;
     }
@@ -812,6 +898,32 @@
       }
     }
 
+    async function resolveUsers(userIds, onProgress) {
+      const missing = [...new Set(userIds.map(String))].filter(
+        (id) => id && !userCache.has(id),
+      );
+      const total = missing.length;
+      let done = 0;
+      onProgress?.(done, total);
+      for (const id of missing) {
+        try {
+          const url = new URL(`${API_BASE}/user.get.json`);
+          url.searchParams.set("ID", String(id));
+          const res = await fetch(url);
+          const data = await res.json();
+          const u = Array.isArray(data.result) ? data.result[0] : data.result;
+          const name = u
+            ? [u.NAME, u.LAST_NAME].filter(Boolean).join(" ").trim()
+            : "";
+          userCache.set(String(id), name || `#${id}`);
+        } catch {
+          userCache.set(String(id), `#${id}`);
+        }
+        done += 1;
+        onProgress?.(done, total);
+      }
+    }
+
     function dealToRow(deal) {
       const countryRaw = deal[FIELD_COUNTRY];
       const channelRaw = deal[FIELD_CHANNEL];
@@ -821,6 +933,15 @@
       const immigrantLabel = isImmigrantYes(immigrantRaw) ? "კი" : (immigrantRaw ? formatEnumLabel(immigrantRaw, immigrantLabels) || "არა" : "");
       const agency = isAgencyChannel(channelRaw) ? "კი" : "";
       const amount = parseAmount(deal.OPPORTUNITY);
+
+      const advisorRaw = deal[FIELD_ADVISOR];
+      const advisorId = advisorRaw ? String(advisorRaw) : "";
+      const advisorName = advisorId ? userCache.get(advisorId) || "" : "";
+      const project = formatProject(deal[FIELD_PROJECT]);
+      const floor = deal[FIELD_FLOOR] != null && deal[FIELD_FLOOR] !== false
+        ? String(deal[FIELD_FLOOR]).trim() : "";
+      const { unitType, area } = parseUnitInfo(deal[FIELD_UNIT_INFO]);
+      const priceSqmFormatted = formatMoney(deal[FIELD_PRICE_SQM]);
 
       return {
         id: deal.ID,
@@ -837,6 +958,13 @@
         channelId: channelRaw ? String(channelRaw) : "",
         agency,
         isAgency: isAgencyChannel(channelRaw),
+        advisorId,
+        advisor: advisorName,
+        project,
+        floor,
+        unitType,
+        area,
+        priceSqmFormatted,
         amount,
         priceFormatted: formatMoney(deal.OPPORTUNITY),
       };
@@ -902,6 +1030,90 @@
         .join("");
     }
 
+    function renderConversion(rows) {
+      const tbody = document.querySelector("#conversionSummary tbody");
+      const total = rows.length;
+      if (!total) {
+        tbody.innerHTML = '<tr><td colspan="4" class="empty">მონაცემები არ არის</td></tr>';
+        return;
+      }
+      const pct = (n) => `${((n / total) * 100).toFixed(1)}%`;
+      const sum = (arr) => arr.reduce((s, r) => s + r.amount, 0);
+      const geo = rows.filter((r) => r.isGeorgian);
+      const forg = rows.filter((r) => r.isForeign);
+      const imm = rows.filter((r) => r.isImmigrant);
+      const items = [
+        { name: "ქართველი მყიდველი", list: geo },
+        { name: "უცხოელი მყიდველი", list: forg },
+        { name: "ემიგრანტი მყიდველი", list: imm },
+      ];
+      const head = `<tr>
+        <td><strong>სულ მყიდველი</strong></td>
+        <td><strong>${total}</strong></td>
+        <td><strong>100%</strong></td>
+        <td><strong>${escapeHtml(formatMoney(`${sum(rows)}|USD`))}</strong></td>
+      </tr>`;
+      tbody.innerHTML = head + items
+        .map(
+          (it) => `<tr>
+          <td>${escapeHtml(it.name)}</td>
+          <td>${it.list.length}</td>
+          <td>${pct(it.list.length)}</td>
+          <td>${escapeHtml(formatMoney(`${sum(it.list)}|USD`))}</td>
+        </tr>`,
+        )
+        .join("");
+    }
+
+    const DETAIL_FILTERS = [
+      { sel: "fltType", get: (r) => r.clientType },
+      { sel: "fltImmigrant", get: (r) => (r.isImmigrant ? "კი" : "არა") },
+      { sel: "fltCountry", get: (r) => r.country || "—" },
+      { sel: "fltAdvisor", get: (r) => r.advisor || "—" },
+      { sel: "fltChannel", get: (r) => r.channel || "—" },
+      { sel: "fltAgency", get: (r) => (r.isAgency ? "კი" : "არა") },
+      { sel: "fltProject", get: (r) => r.project || "—" },
+      { sel: "fltFloor", get: (r) => r.floor || "—" },
+      { sel: "fltUnitType", get: (r) => r.unitType || "—" },
+    ];
+
+    function populateFilters(rows) {
+      for (const f of DETAIL_FILTERS) {
+        const el = $(f.sel);
+        const prev = el.value;
+        const values = [...new Set(rows.map((r) => f.get(r) || "—"))]
+          .sort((a, b) => String(a).localeCompare(String(b), "ka", { numeric: true }));
+        el.innerHTML =
+          '<option value="">ყველა</option>' +
+          values.map((v) => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("");
+        if (prev && values.includes(prev)) el.value = prev;
+      }
+    }
+
+    function getFilteredRows() {
+      return lastRows.filter((r) =>
+        DETAIL_FILTERS.every((f) => {
+          const sel = $(f.sel).value;
+          return !sel || (f.get(r) || "—") === sel;
+        }),
+      );
+    }
+
+    function applyFilters() {
+      filteredRows = getFilteredRows();
+      detailPage = 1;
+      renderSummaryCards(filteredRows);
+      renderConversion(filteredRows);
+      renderMiniTable("channelSummary", aggregateChannelSummary(filteredRows));
+      renderMiniTable("countrySummary", aggregateByKey(filteredRows, (r) => r.country));
+      renderDetailTable(filteredRows, 1);
+    }
+
+    function resetFilters() {
+      DETAIL_FILTERS.forEach((f) => { $(f.sel).value = ""; });
+      applyFilters();
+    }
+
     function renderMiniTable(tbodyId, items) {
       const tbody = document.querySelector(`#${tbodyId} tbody`);
       if (!items.length) {
@@ -923,7 +1135,7 @@
       const tbody = $("tbody");
       if (!rows.length) {
         tbody.innerHTML =
-          '<tr><td colspan="9" class="empty">ამ პერიოდში Pipeline 0 · WON გარიგებები არ მოიძებნა.</td></tr>';
+          '<tr><td colspan="15" class="empty">ამ პერიოდში Pipeline 0 · WON გარიგებები არ მოიძებნა.</td></tr>';
         updatePaginationControls();
         return;
       }
@@ -952,8 +1164,14 @@
           <td>${escapeHtml(r.country)}</td>
           <td>${typeBadge}</td>
           <td>${immBadge}</td>
+          <td>${escapeHtml(r.advisor)}</td>
           <td>${escapeHtml(r.channel)}</td>
           <td>${escapeHtml(r.agency)}</td>
+          <td>${escapeHtml(r.project)}</td>
+          <td>${escapeHtml(r.floor)}</td>
+          <td>${escapeHtml(r.unitType)}</td>
+          <td>${escapeHtml(r.area)}</td>
+          <td>${escapeHtml(r.priceSqmFormatted)}</td>
           <td>${escapeHtml(r.priceFormatted)}</td>
         </tr>`;
         })
@@ -964,13 +1182,15 @@
     function exportCsv(rows) {
       const headers = [
         "Deal ID", "თარიღი", "კლიენტი", "ქვეყანა", "ტიპი", "ემიგრანტი",
-        "არხი", "არხი ID", "სააგენტო", "თანხა",
+        "პერსონალური მრჩეველი", "არხი", "არხი ID", "სააგენტო",
+        "პროექტი", "სართული", "ბინა/პარკინგი", "ფართი (კვ.მ)", "ფასი (კვ.მ)", "თანხა",
       ];
       const lines = [headers.join(",")];
       for (const r of rows) {
         const cols = [
           r.id, r.date, r.clientName, r.country, r.clientType, r.immigrant,
-          r.channel, r.channelId, r.agency, r.priceFormatted,
+          r.advisor, r.channel, r.channelId, r.agency,
+          r.project, r.floor, r.unitType, r.area, r.priceSqmFormatted, r.priceFormatted,
         ].map((v) => `"${String(v).replace(/"/g, '""')}"`);
         lines.push(cols.join(","));
       }
@@ -1012,6 +1232,7 @@
         await Promise.all([
           loadFieldItems(FIELD_COUNTRY, countryLabels),
           loadFieldItems(FIELD_IMMIGRANT, immigrantLabels),
+          loadFieldItems(FIELD_PROJECT, projectLabels),
           loadChannelLabels((loaded, total, step) => {
             setProgress(step || "გაყიდვის არხები…", loaded, total);
           }),
@@ -1024,8 +1245,11 @@
 
         if (!deals.length) {
           lastRows = [];
+          filteredRows = [];
           detailPage = 1;
+          populateFilters([]);
           renderSummaryCards([]);
+          renderConversion([]);
           renderMiniTable("channelSummary", []);
           renderMiniTable("countrySummary", []);
           renderDetailTable([]);
@@ -1045,13 +1269,18 @@
           setProgress("კონტაქტების ჩატვირთვა…", done, total || 1);
         });
 
+        setProgress("მრჩევლების ჩატვირთვა…", 0, null);
+        const advisorIds = deals.map((d) => d[FIELD_ADVISOR]).filter(Boolean);
+        await resolveUsers(advisorIds, (done, total) => {
+          setProgress("მრჩევლების ჩატვირთვა…", done, total || 1);
+        });
+
         detailPage = 1;
         lastRows = deals.map(dealToRow);
         applyChannelLabelsToRows(lastRows);
-        renderSummaryCards(lastRows);
-        renderMiniTable("channelSummary", aggregateChannelSummary(lastRows));
-        renderMiniTable("countrySummary", aggregateByKey(lastRows, (r) => r.country));
-        renderDetailTable(lastRows, 1);
+        DETAIL_FILTERS.forEach((f) => { $(f.sel).value = ""; });
+        populateFilters(lastRows);
+        applyFilters();
 
         $("report").classList.remove("hidden");
         $("btnExport").disabled = false;
@@ -1113,14 +1342,18 @@
 
     $("btnLoad").addEventListener("click", loadReport);
     $("btnExport").addEventListener("click", () => {
-      if (lastRows.length) exportCsv(lastRows);
+      if (filteredRows.length) exportCsv(filteredRows);
     });
     $("btnPrevPage").addEventListener("click", () => {
-      if (detailPage > 1) renderDetailTable(lastRows, detailPage - 1);
+      if (detailPage > 1) renderDetailTable(filteredRows, detailPage - 1);
     });
     $("btnNextPage").addEventListener("click", () => {
-      if (detailPage < totalDetailPages()) renderDetailTable(lastRows, detailPage + 1);
+      if (detailPage < totalDetailPages()) renderDetailTable(filteredRows, detailPage + 1);
     });
+    DETAIL_FILTERS.forEach((f) => {
+      $(f.sel).addEventListener("change", applyFilters);
+    });
+    $("btnResetFilters").addEventListener("click", resetFilters);
 
     initPinGate();
   </script>
