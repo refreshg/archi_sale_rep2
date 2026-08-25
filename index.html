@@ -60,6 +60,46 @@
       padding: 0.85rem 1rem;
       box-shadow: 0 1px 3px rgba(0,0,0,.08);
       border-left: 4px solid var(--accent);
+      cursor: pointer;
+      transition: box-shadow 0.15s ease, transform 0.15s ease;
+      user-select: none;
+    }
+    .summary-card:hover {
+      box-shadow: 0 3px 10px rgba(0,0,0,.16);
+      transform: translateY(-1px);
+    }
+    .summary-card.active {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+    }
+    .summary-card .drill-hint {
+      font-size: 0.7rem;
+      color: #94a3b8;
+      margin-top: 0.25rem;
+    }
+    #drilldown.hidden { display: none; }
+    .drill-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem 0.9rem;
+      align-items: flex-end;
+    }
+    .drill-controls label {
+      font-size: 0.78rem;
+      color: #475569;
+      gap: 0.2rem;
+    }
+    .drill-controls select {
+      padding: 0.35rem 0.5rem;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 0.85rem;
+      min-width: 170px;
+      background: #fff;
+    }
+    .drill-controls button {
+      padding: 0.35rem 0.85rem;
+      font-size: 0.85rem;
     }
     .summary-card.georgian { border-left-color: #16a34a; }
     .summary-card.foreign { border-left-color: #ea580c; }
@@ -352,12 +392,42 @@
   <div id="report" class="hidden">
     <div class="summary-grid" id="summaryCards"></div>
 
+    <div class="section hidden" id="drilldown">
+      <div class="section-head">
+        <h2 id="drilldownTitle">დრილ-დაუნი</h2>
+        <div class="drill-controls">
+          <label>ჭრილი (რისგან შედგება)<select id="drillDim"></select></label>
+          <button type="button" class="secondary" id="btnCloseDrill">დახურვა ✕</button>
+        </div>
+      </div>
+      <div class="mini-table-wrap">
+        <table class="mini-table" id="drillTable">
+          <thead>
+            <tr><th>კატეგორია</th><th>რაოდენობა</th><th>პროცენტი</th><th>თანხა (USD)</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
     <div class="section">
       <h2>კონვერტაცია (მყიდველების პროცენტული განაწილება)</h2>
       <div class="mini-table-wrap">
         <table class="mini-table" id="conversionSummary">
           <thead>
             <tr><th>კატეგორია</th><th>რაოდენობა</th><th>პროცენტი</th><th>თანხა (USD)</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>ბინის შეძენის საჭიროება</h2>
+      <div class="mini-table-wrap">
+        <table class="mini-table" id="needSummary">
+          <thead>
+            <tr><th>საჭიროება</th><th>რაოდენობა</th><th>პროცენტი</th><th>თანხა (USD)</th></tr>
           </thead>
           <tbody></tbody>
         </table>
@@ -400,6 +470,7 @@
       <div class="filter-bar" id="filterBar">
         <label>კლიენტის ტიპი<select id="fltType"></select></label>
         <label>ემიგრანტი<select id="fltImmigrant"></select></label>
+        <label>შეძენის საჭიროება<select id="fltNeed"></select></label>
         <label>ქვეყანა<select id="fltCountry"></select></label>
         <label>პერსონალური მრჩეველი<select id="fltAdvisor"></select></label>
         <label>გაყიდვის არხი<select id="fltChannel"></select></label>
@@ -420,6 +491,7 @@
             <th>ქვეყანა (მყიდველი)</th>
             <th>კლიენტის ტიპი</th>
             <th>ემიგრანტი</th>
+            <th>შეძენის საჭიროება</th>
             <th>პერსონალური მრჩეველი</th>
             <th>გაყიდვის არხი</th>
             <th>სააგენტო</th>
@@ -456,6 +528,7 @@
     const FIELD_FLOOR = "UF_CRM_1574325620519";     // სართული
     const FIELD_UNIT_INFO = "UF_CRM_1617787519405"; // კომპოზიტური: პროექტი | ტიპი | № | კვ.მ | სართ | კვ.ფასი | ჯამური
     const FIELD_PRICE_SQM = "UF_CRM_1574325830678"; // კვ.მ ფასი (money)
+    const FIELD_NEED = "UF_CRM_1694089507982";      // ბინის შეძენის საჭიროება (enum)
 
     const GEORGIA_COUNTRY_ID = "3523";
     const IMMIGRANT_YES_ID = "4386";
@@ -482,6 +555,7 @@
       "ID", "CATEGORY_ID", "STAGE_ID", "BEGINDATE", "CONTACT_ID", "OPPORTUNITY", "ASSIGNED_BY_ID",
       FIELD_COUNTRY, FIELD_IMMIGRANT, FIELD_CHANNEL,
       FIELD_ADVISOR, FIELD_PROJECT, FIELD_FLOOR, FIELD_UNIT_INFO, FIELD_PRICE_SQM,
+      FIELD_NEED,
     ];
 
     function isWonPipelineZero(deal) {
@@ -495,6 +569,7 @@
     const immigrantLabels = new Map();
     const channelLabels = new Map();
     const projectLabels = new Map();
+    const needLabels = new Map();
     const contactCache = new Map();
     const userCache = new Map();
     let lastRows = [];
@@ -943,6 +1018,8 @@
         ? String(deal[FIELD_FLOOR]).trim() : "";
       const { unitType, area } = parseUnitInfo(deal[FIELD_UNIT_INFO]);
       const priceSqmFormatted = formatMoney(deal[FIELD_PRICE_SQM]);
+      const needRaw = Array.isArray(deal[FIELD_NEED]) ? deal[FIELD_NEED][0] : deal[FIELD_NEED];
+      const need = formatEnumLabel(needRaw, needLabels);
 
       return {
         id: deal.ID,
@@ -961,6 +1038,7 @@
         isAgency: isAgencyChannel(channelRaw),
         advisorId,
         advisor: advisorName,
+        need,
         project,
         floor,
         unitType,
@@ -1003,6 +1081,88 @@
       );
     }
 
+    /* ---- Drill-down: რისგან შედგება თითოეული საჯამო ბარათი ---- */
+    const DRILL_CARDS = {
+      total: { label: "სულ (Pipeline 0 · WON)", filter: () => true },
+      georgian: { label: "ქართველი", filter: (r) => r.isGeorgian },
+      foreign: { label: "უცხოელი", filter: (r) => r.isForeign },
+      immigrant: { label: "ემიგრანტი (კი)", filter: (r) => r.isImmigrant },
+      agency: { label: "სააგენტო", filter: (r) => r.isAgency },
+      amount: { label: "ჯამური თანხა", filter: () => true },
+    };
+
+    const DRILL_DIMS = [
+      { key: "channel", label: "გაყიდვის არხი", get: (r) => r.channel || "—" },
+      { key: "need", label: "ბინის შეძენის საჭიროება", get: (r) => r.need || "არ არის შევსებული" },
+      { key: "country", label: "ქვეყანა", get: (r) => r.country || "—" },
+      { key: "project", label: "პროექტი", get: (r) => r.project || "—" },
+      { key: "advisor", label: "პერსონალური მრჩეველი", get: (r) => r.advisor || "—" },
+      { key: "unitType", label: "ბინა/პარკინგი", get: (r) => r.unitType || "—" },
+      { key: "clientType", label: "კლიენტის ტიპი", get: (r) => r.clientType },
+      { key: "floor", label: "სართული", get: (r) => r.floor || "—" },
+    ];
+
+    let activeDrillCard = null;
+
+    function renderPctTable(tbodySelector, rows, keyFn) {
+      const tbody = document.querySelector(tbodySelector);
+      const total = rows.length;
+      if (!total) {
+        tbody.innerHTML = '<tr><td colspan="4" class="empty">მონაცემები არ არის</td></tr>';
+        return;
+      }
+      const items = aggregateByKey(rows, keyFn);
+      tbody.innerHTML = items
+        .map(
+          (it) => `<tr>
+          <td>${escapeHtml(it.name)}</td>
+          <td>${it.count}</td>
+          <td>${((it.count / total) * 100).toFixed(1)}%</td>
+          <td>${escapeHtml(formatMoney(`${it.amount}|USD`))}</td>
+        </tr>`,
+        )
+        .join("");
+    }
+
+    function populateDrillDims() {
+      $("drillDim").innerHTML = DRILL_DIMS
+        .map((d) => `<option value="${d.key}">${escapeHtml(d.label)}</option>`)
+        .join("");
+    }
+
+    function renderDrilldown() {
+      if (!activeDrillCard) return;
+      const conf = DRILL_CARDS[activeDrillCard];
+      if (!conf) return;
+      const rows = filteredRows.filter(conf.filter);
+      const totalAmount = rows.reduce((s, r) => s + r.amount, 0);
+      $("drilldownTitle").textContent =
+        `${conf.label} — ${rows.length} გარიგება · ${formatMoney(`${totalAmount}|USD`)}`;
+      const dim = DRILL_DIMS.find((d) => d.key === $("drillDim").value) || DRILL_DIMS[0];
+      renderPctTable("#drillTable tbody", rows, dim.get);
+    }
+
+    function openDrilldown(cardKey) {
+      if (activeDrillCard === cardKey) {
+        closeDrilldown();
+        return;
+      }
+      activeDrillCard = cardKey;
+      $("drilldown").classList.remove("hidden");
+      document.querySelectorAll("#summaryCards .summary-card").forEach((el) => {
+        el.classList.toggle("active", el.dataset.card === cardKey);
+      });
+      renderDrilldown();
+    }
+
+    function closeDrilldown() {
+      activeDrillCard = null;
+      $("drilldown").classList.add("hidden");
+      document.querySelectorAll("#summaryCards .summary-card").forEach((el) => {
+        el.classList.remove("active");
+      });
+    }
+
     function renderSummaryCards(rows) {
       const total = rows.length;
       const georgian = rows.filter((r) => r.isGeorgian).length;
@@ -1012,20 +1172,21 @@
       const totalAmount = rows.reduce((s, r) => s + r.amount, 0);
 
       const cards = [
-        { label: "სულ (Pipeline 0 · WON)", value: total, cls: "" },
-        { label: "ქართველი", value: georgian, cls: "georgian" },
-        { label: "უცხოელი", value: foreign, cls: "foreign" },
-        { label: "ემიგრანტი (კი)", value: immigrants, cls: "immigrant" },
-        { label: "სააგენტო", value: agency, cls: "agency" },
-        { label: "ჯამური თანხა", value: formatMoney(`${totalAmount}|USD`), cls: "" },
+        { key: "total", label: "სულ (Pipeline 0 · WON)", value: total, cls: "" },
+        { key: "georgian", label: "ქართველი", value: georgian, cls: "georgian" },
+        { key: "foreign", label: "უცხოელი", value: foreign, cls: "foreign" },
+        { key: "immigrant", label: "ემიგრანტი (კი)", value: immigrants, cls: "immigrant" },
+        { key: "agency", label: "სააგენტო", value: agency, cls: "agency" },
+        { key: "amount", label: "ჯამური თანხა", value: formatMoney(`${totalAmount}|USD`), cls: "" },
       ];
 
       $("summaryCards").innerHTML = cards
         .map(
           (c) => `
-        <div class="summary-card ${c.cls}">
+        <div class="summary-card ${c.cls}${activeDrillCard === c.key ? " active" : ""}" data-card="${c.key}" title="დააჭირეთ დრილ-დაუნისთვის">
           <div class="label">${escapeHtml(c.label)}</div>
           <div class="value">${escapeHtml(String(c.value))}</div>
+          <div class="drill-hint">▾ დეტალურად</div>
         </div>`,
         )
         .join("");
@@ -1069,6 +1230,7 @@
     const DETAIL_FILTERS = [
       { sel: "fltType", get: (r) => r.clientType },
       { sel: "fltImmigrant", get: (r) => (r.isImmigrant ? "კი" : "არა") },
+      { sel: "fltNeed", get: (r) => r.need || "—" },
       { sel: "fltCountry", get: (r) => r.country || "—" },
       { sel: "fltAdvisor", get: (r) => r.advisor || "—" },
       { sel: "fltChannel", get: (r) => r.channel || "—" },
@@ -1105,9 +1267,11 @@
       detailPage = 1;
       renderSummaryCards(filteredRows);
       renderConversion(filteredRows);
+      renderPctTable("#needSummary tbody", filteredRows, (r) => r.need || "არ არის შევსებული");
       renderMiniTable("channelSummary", aggregateChannelSummary(filteredRows));
       renderMiniTable("countrySummary", aggregateByKey(filteredRows, (r) => r.country));
       renderDetailTable(filteredRows, 1);
+      renderDrilldown();
     }
 
     function resetFilters() {
@@ -1136,7 +1300,7 @@
       const tbody = $("tbody");
       if (!rows.length) {
         tbody.innerHTML =
-          '<tr><td colspan="15" class="empty">ამ პერიოდში Pipeline 0 · WON გარიგებები არ მოიძებნა.</td></tr>';
+          '<tr><td colspan="16" class="empty">ამ პერიოდში Pipeline 0 · WON გარიგებები არ მოიძებნა.</td></tr>';
         updatePaginationControls();
         return;
       }
@@ -1165,6 +1329,7 @@
           <td>${escapeHtml(r.country)}</td>
           <td>${typeBadge}</td>
           <td>${immBadge}</td>
+          <td>${escapeHtml(r.need)}</td>
           <td>${escapeHtml(r.advisor)}</td>
           <td>${escapeHtml(r.channel)}</td>
           <td>${escapeHtml(r.agency)}</td>
@@ -1183,14 +1348,14 @@
     function exportCsv(rows) {
       const headers = [
         "Deal ID", "თარიღი", "კლიენტი", "ქვეყანა", "ტიპი", "ემიგრანტი",
-        "პერსონალური მრჩეველი", "არხი", "არხი ID", "სააგენტო",
+        "შეძენის საჭიროება", "პერსონალური მრჩეველი", "არხი", "არხი ID", "სააგენტო",
         "პროექტი", "სართული", "ბინა/პარკინგი", "ფართი (კვ.მ)", "ფასი (კვ.მ)", "თანხა",
       ];
       const lines = [headers.join(",")];
       for (const r of rows) {
         const cols = [
           r.id, r.date, r.clientName, r.country, r.clientType, r.immigrant,
-          r.advisor, r.channel, r.channelId, r.agency,
+          r.need, r.advisor, r.channel, r.channelId, r.agency,
           r.project, r.floor, r.unitType, r.area, r.priceSqmFormatted, r.priceFormatted,
         ].map((v) => `"${String(v).replace(/"/g, '""')}"`);
         lines.push(cols.join(","));
@@ -1234,6 +1399,7 @@
           loadFieldItems(FIELD_COUNTRY, countryLabels),
           loadFieldItems(FIELD_IMMIGRANT, immigrantLabels),
           loadFieldItems(FIELD_PROJECT, projectLabels),
+          loadFieldItems(FIELD_NEED, needLabels),
           loadChannelLabels((loaded, total, step) => {
             setProgress(step || "გაყიდვის არხები…", loaded, total);
           }),
@@ -1249,8 +1415,10 @@
           filteredRows = [];
           detailPage = 1;
           populateFilters([]);
+          closeDrilldown();
           renderSummaryCards([]);
           renderConversion([]);
+          renderPctTable("#needSummary tbody", [], (r) => r.need || "არ არის შევსებული");
           renderMiniTable("channelSummary", []);
           renderMiniTable("countrySummary", []);
           renderDetailTable([]);
@@ -1355,6 +1523,14 @@
       $(f.sel).addEventListener("change", applyFilters);
     });
     $("btnResetFilters").addEventListener("click", resetFilters);
+
+    $("summaryCards").addEventListener("click", (e) => {
+      const card = e.target.closest(".summary-card");
+      if (card && card.dataset.card) openDrilldown(card.dataset.card);
+    });
+    $("drillDim").addEventListener("change", renderDrilldown);
+    $("btnCloseDrill").addEventListener("click", closeDrilldown);
+    populateDrillDims();
 
     initPinGate();
   </script>
